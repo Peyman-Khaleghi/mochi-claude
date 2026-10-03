@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-test/
+release/
+*.log
+
+# Claude Code's settings on this machine: local permissions and paths, not part of Mochi.
+.claude/

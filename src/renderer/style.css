@@ -1,0 +1,390 @@
+/* The island's look. It matches the approved mockups (docs/mockups):
+   a black shape hanging from the top edge of the screen, dark cards inside it,
+   and a soft light behind Mochi in the colour of what it is feeling. */
+
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/Vazirmatn.woff2") format("woff2");
+  font-weight: 100 900;
+}
+
+:root {
+  /* Mochi's own state colours, copied from mochi/engine.ts (const C), so the cards and
+     Mochi never disagree about what orange means. island.ts uses the same four. */
+  --working: #3B9EFF;
+  --waiting: #F5A524;
+  --finished: #34D499;
+  --idle: #94A2B8;
+
+  --island: #000;
+  --card-top: #17181b;
+  --card-bottom: #0d0e10;
+  --well: #1c1d21;
+  --line: rgba(255, 255, 255, .07);
+  --text: rgba(255, 255, 255, .95);
+  --text-2: rgba(255, 255, 255, .64);
+  --text-3: rgba(255, 255, 255, .40);
+
+  /* The card's width. Rows under it (the queue) use the same width, so nothing inside
+     can ever make the island wider than the card. */
+  --card-width: 680px;
+
+  --font: "Vazirmatn", "Segoe UI", sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font);
+  color: var(--text);
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+#island {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ── Tucked away: a thin lip at the top edge, one dot per window ─────────── */
+
+.lip {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  min-width: 120px;
+  height: 9px;
+  padding: 0 14px 2px;
+  border-radius: 0 0 9px 9px;
+  background: var(--island);
+}
+.lip i { width: 5px; height: 5px; border-radius: 50%; background: var(--tone); }
+
+/* ── Everything else lives in the black body ───────────────────────────── */
+
+.body {
+  /* Never wider than the window (900 px in main.ts), whatever is inside. */
+  max-width: 880px;
+  background: var(--island);
+  border-radius: 0 0 34px 34px;
+  padding: 10px 12px 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .05);
+}
+/* Only when the island changes shape; a refresh of the same card doesn't bounce. */
+.body.enter { animation: drop .22s ease-out; }
+@keyframes drop {
+  from { transform: translateY(-10px); opacity: 0; }
+}
+
+.body.pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 18px 6px 14px;
+  border-radius: 0 0 24px 24px;
+}
+.pill .sep { width: 1px; height: 22px; background: var(--line); }
+.pill .minis { display: flex; gap: 2px; }
+.pill canvas.me { cursor: pointer; }
+
+/* State tones, used by dots, glows and borders. */
+.working  { --tone: var(--working); }
+.waiting  { --tone: var(--waiting); }
+.finished { --tone: var(--finished); }
+.idle     { --tone: var(--idle); }
+
+/* ── A window's name: its folder, and its own name when a folder has several ── */
+
+.name { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; }
+/* A long folder name is cut with "…" rather than pushed out of its tile or card. */
+.proj { font-weight: 700; color: var(--text); direction: ltr; unicode-bidi: isolate; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.name .sep { color: var(--text-3); }
+.name .title {
+  color: var(--text-2);
+  font-weight: 600;
+  unicode-bidi: plaintext;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: var(--card-width);
+  padding: 18px 20px 18px 22px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.glow {
+  position: absolute;
+  right: -70px;
+  bottom: -110px;
+  width: 340px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--tone), transparent);
+  opacity: .32;
+  pointer-events: none;
+}
+
+.avatar { position: relative; flex: none; width: 150px; display: grid; place-items: center; }
+.avatar canvas { cursor: pointer; }
+/* One column, exactly as wide as the card leaves it. Without minmax(0, …) the column grows
+   to fit the longest line that can't wrap (a long "Always allow" rule), and everything in
+   the card spills out of its left edge. */
+.content { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+
+.who { display: flex; align-items: center; gap: 9px; font-size: 15px; min-width: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 10px var(--tone); flex: none; }
+.what { color: var(--text-2); white-space: nowrap; }
+.when { margin-right: auto; color: var(--text-3); font-size: 13px; white-space: nowrap; }
+
+.desc {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  unicode-bidi: plaintext;
+  text-align: right;
+}
+
+.cmd {
+  direction: ltr;
+  text-align: left;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px 15px;
+  font: 15px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 128px;
+  overflow: auto;
+  user-select: text;
+}
+.cmd .prompt { color: var(--text-3); margin-right: 10px; user-select: none; }
+.cmd.detail { font-size: 13.5px; }
+
+.where { display: flex; align-items: center; gap: 7px; font: 12.5px var(--mono); color: var(--text-3); min-width: 0; }
+.where svg { flex: none; }
+.where span { direction: ltr; unicode-bidi: isolate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.said {
+  font-size: 16px;
+  line-height: 1.85;
+  padding-right: 14px;
+  border-right: 2px solid var(--tone);
+  unicode-bidi: plaintext;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.btn {
+  height: 38px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, .09);
+  transition: background .12s, transform .08s;
+}
+.btn:hover { background: rgba(255, 255, 255, .15); }
+.btn:active { transform: scale(.97); }
+.btn.primary { background: #fff; color: #000; }
+.btn.primary:hover { background: #e9e9e9; }
+.btn.always { background: rgba(245, 165, 36, .16); color: #ffd79e; padding: 0 16px; }
+.btn.always:hover { background: rgba(245, 165, 36, .26); }
+.btn.ghost { background: transparent; color: var(--text-2); padding: 0 10px; margin-right: auto; }
+.btn.ghost:hover { color: var(--text); }
+
+/* What "Always allow" would save, word for word. */
+.always-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+.always-note code {
+  font: 12px var(--mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  color: var(--text-2);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Requests waiting their turn ────────────────────────────────────────── */
+/* Exactly the card's width: a long command is cut with "…", it never widens the island. */
+
+.queue {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: var(--card-width);
+  margin-top: 8px;
+  padding: 8px 16px 8px 12px;
+  border-radius: 18px;
+  background: #0f1012;
+  border: 1px solid rgba(245, 165, 36, .28);
+  font-size: 14.5px;
+}
+.queue canvas { flex: none; }
+.queue .name { flex: none; max-width: 45%; }
+.queue .what { flex: 1 1 0; min-width: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue .mono { font-family: var(--mono); font-size: .95em; direction: ltr; unicode-bidi: isolate; }
+.queue .more { margin-right: auto; color: var(--text-3); font-size: 13px; }
+
+/* ── Every window at once ───────────────────────────────────────────────── */
+
+.overview { display: grid; grid-template-columns: 170px 1fr; gap: 10px; width: 760px; }
+.pane {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+  border: 1px solid var(--line);
+}
+.pane.me { display: grid; justify-items: center; align-content: center; gap: 2px; padding: 10px 10px 14px; }
+.pane.me .count { position: relative; font-size: 17px; font-weight: 700; }
+.pane.me .sub { position: relative; font-size: 13px; color: var(--text-2); }
+.pane.me .sub.urgent { color: var(--waiting); }
+/* The tiles fill the pane; Mochi's own switches sit in a quiet row at its bottom. */
+.pane.list { display: flex; flex-direction: column; }
+.tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 10px 4px; align-content: center; }
+.tiles.one { grid-template-columns: 1fr; }
+/* A tile is one window: click it to go there. The arrow appears on hover so it reads as
+   a link; the × in the corner takes the window off Mochi. */
+.tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 34px;
+  border-radius: 18px;
+  background: #121316;
+  border: 1px solid var(--line);
+  text-align: right;
+  min-width: 0;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.tile:hover { border-color: rgba(255, 255, 255, .22); background: #17181c; }
+.tile .go { position: absolute; left: 12px; bottom: 10px; color: var(--text-2); opacity: 0; transition: opacity .12s; }
+.tile:hover .go { opacity: 1; }
+.tile .close {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  opacity: .55;
+  transition: opacity .12s, background .12s;
+}
+.tile:hover .close { opacity: 1; }
+.tile .close:hover { background: rgba(255, 255, 255, .14); color: var(--text); }
+.tile.waiting { border-color: rgba(245, 165, 36, .45); background: linear-gradient(90deg, rgba(245, 165, 36, .04), rgba(245, 165, 36, .12)); }
+.tile canvas { flex: none; }
+.tile .t { display: grid; gap: 1px; min-width: 0; }
+.tile .name { font-size: 14.5px; }
+.tile .name .title { max-width: 140px; }
+.tile .st { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Under «داره کار می‌کنه», the step it is on: the tool in the working colour, then what it
+   touches. Left to right like the code it names, but kept on the tile's right edge. */
+.tile .act { font-size: 12px; color: var(--tone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .act.code { justify-self: start; max-width: 100%; direction: ltr; unicode-bidi: isolate; color: var(--text-2); }
+.tile .act b { font-weight: 700; color: var(--tone); margin-right: 6px; }
+.tile .act .target { font: 11.5px var(--mono); }
+
+/* Start with Windows, and quit: small, at the bottom-left of the tiles pane. */
+.pane.list .controls { display: flex; justify-content: flex-end; gap: 2px; padding: 0 8px 6px; }
+.opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-3);
+  transition: background .12s, color .12s;
+}
+.opt:hover { background: rgba(255, 255, 255, .09); color: var(--text); }
+/* A small switch. Right-to-left, so "off" has its knob on the right. */
+.track { position: relative; flex: none; width: 24px; height: 14px; border-radius: 999px; background: rgba(255, 255, 255, .2); transition: background .15s; }
+.track::after { content: ""; position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: right .15s; }
+.track.on { background: var(--finished); }
+.track.on::after { right: 12px; }
+
+.notice { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 18px; text-align: center; color: var(--text-2); font-size: 14.5px; line-height: 1.8; }
+
+/* ── The whole of a cut name, while the pointer rests on it ─────────────── */
+/* A copy of the name (or "Always allow" rule) in a small dark label, with nothing cut:
+   long parts wrap instead. Outside #island, so no card's rounded edge can clip it. */
+
+.tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  max-width: 460px;
+  padding: 6px 11px;
+  border-radius: 10px;
+  background: var(--well);
+  border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.tip.on { visibility: visible; opacity: 1; }
+/* The folder on one line, the session's own name under it. */
+.tip .name { flex-direction: column; align-items: flex-start; gap: 0; }
+.tip .name .sep { display: none; }
+.tip .proj,
+.tip .name .title { white-space: normal; overflow: visible; max-width: none; overflow-wrap: anywhere; }
+.tip code { font: 12px/1.7 var(--mono); overflow-wrap: anywhere; }

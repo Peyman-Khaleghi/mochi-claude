@@ -1,0 +1,17 @@
+{
+  // Type checking only. esbuild (build.mjs) turns the TypeScript into JavaScript;
+  // `pnpm typecheck` is what catches mistakes.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src"]
+}
