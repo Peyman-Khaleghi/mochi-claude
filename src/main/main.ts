@@ -29,11 +29,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { HookInput } from "../shared/hook-input";
 import type { Decision } from "../shared/pipe";
-import type { IslandBox } from "../shared/view";
+import type { IslandBox, PageHealth } from "../shared/view";
 import { ActivityReader } from "./activity";
 import { watchForAnswer } from "./answered-elsewhere";
 import * as claude from "./claude-settings";
-import { log, startLog } from "./log";
+import { log, startLog, timestamp } from "./log";
 import { startPipe, type Ask } from "./pipe";
 import { Sessions } from "./sessions";
 import { isTranscript, readSessionTitle } from "./transcript";
@@ -51,10 +51,19 @@ const ACTIVITY_POLL_MS = 1000;
 /** How often the app checks the pointer itself, so the island can always be clicked (watchPointer). */
 const POINTER_POLL_MS = 100;
 
+/** How often the app looks at its own health and the page's (watchHealth). */
+const HEALTH_CHECK_MS = 1000;
+/** The page reports every 5 s (island.ts); nothing from it for this long goes to the log. */
+const PAGE_QUIET_MS = 20_000;
+/** A gap this long between two health checks means the app itself was stopped, as in standby. */
+const PAUSED_MS = 5000;
+/** How many of the latest pointer and click events are kept, to be logged when Mochi quits. */
+const RECENT_EVENTS = 30;
+
 /**
  * The window is a fixed, invisible rectangle at the top centre of the screen, big enough
  * for the largest card. Everything outside the island is transparent and lets clicks
- * through (see setInteractive).
+ * through (see setClickable).
  */
 const WINDOW_WIDTH = 900;
 const WINDOW_HEIGHT = 470;
@@ -85,6 +94,13 @@ if (!UNINSTALL && !SECOND_COPY) {
 // one that tells you a window needs you, so it has to play before any click.
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
+// Chromium switches off a window's input when it thinks the window can't be seen (the
+// laptop locked, the screen off, standby), and for Mochi's see-through, click-through
+// window it doesn't always switch it back on: the island keeps drawing new cards but no
+// click reaches them until Mochi is restarted. Mochi is always on top, so this saving
+// (CalculateNativeWinOcclusion) is of no use to it anyway.
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+
 const sessions = new Sessions();
 const activity = new ActivityReader();
 /** Requests still waiting, by id, with the one function that ends each of them. */
@@ -103,6 +119,14 @@ let pageHover = false;
 let islandBox: IslandBox | null = null;
 /** At the last check the pointer was on the island and the page hadn't noticed. */
 let unnoticed = false;
+/** The page's latest health report (island.ts) and when it came. */
+let health: { at: number; report: PageHealth } | null = null;
+/** When watchHealth last ran, to notice the app itself being stopped. */
+let lastHealthCheck = 0;
+/** The page has been quiet for PAGE_QUIET_MS and that is already in the log. */
+let pageQuiet = false;
+/** The latest pointer and click events, "12:58:30.120 clickable (page)", oldest first. */
+const recent: string[] = [];
 
 function push(): void {
   win?.webContents.send("state", sessions.view({ connected, soundOn, startsWithWindows }));
@@ -249,10 +273,11 @@ function createWindow(): void {
  * pass through to the window under it, but the page still gets the pointer's moves
  * (`forward`), which is how its mouseenter knows to make the island clickable.
  */
-function setClickable(on: boolean): void {
+function setClickable(on: boolean, why: string): void {
   if (!win || on === clickable) return;
   clickable = on;
   win.setIgnoreMouseEvents(!on, { forward: true });
+  note(`${on ? "clickable" : "click-through"} (${why})`);
 }
 
 /** Whether the pointer is on the island, by the app's own look rather than the page's. */
@@ -284,12 +309,78 @@ function watchPointer(): void {
   }
   if (on && unnoticed && !clickable) {
     log("the pointer was on the island but the page wasn't told; made it clickable");
-    setClickable(true);
+    setClickable(true, "pointer on the island, page not told");
   } else if (!on && clickable) {
     // Made clickable just above, and the pointer left without the page noticing either.
-    setClickable(false);
+    setClickable(false, "pointer left, page not told");
   }
   unnoticed = on;
+}
+
+// ── Health, for mochi.log ─────────────────────────────────────────────────────
+// Coming back from standby has left the island drawing new cards but deaf to clicks.
+// These lines are there to find out which link breaks: the mouse reaching the page, or
+// the page reaching the app. The page reports itself every few seconds (island.ts); the
+// app writes down when it was stopped itself, when the page goes quiet, and, when Mochi
+// quits (which is what you do when it is stuck), how everything looked at that moment.
+
+/**
+ * While the app is stopped (standby), Windows can't call its mouse hook and drops it (see
+ * watchPointer). Switching click-through off and on again makes Electron ask for a new one,
+ * so the page hears the pointer again without waiting for watchPointer's rescue.
+ */
+function freshMouseHook(): void {
+  if (!win || clickable) return;
+  win.setIgnoreMouseEvents(false);
+  win.setIgnoreMouseEvents(true, { forward: true });
+  note("fresh mouse hook");
+}
+
+/** Keeps a pointer or click event for the log at quit; only the latest RECENT_EVENTS. */
+function note(event: string): void {
+  recent.push(`${timestamp(new Date()).slice(11)} ${event}`);
+  if (recent.length > RECENT_EVENTS) recent.shift();
+}
+
+/** "3 s ago", or "never" for 0. */
+function ago(at: number): string {
+  return at === 0 ? "never" : `${Math.round((Date.now() - at) / 1000)} s ago`;
+}
+
+/** How things look right now, in one line. */
+function stateLine(): string {
+  const parts = [
+    `clickable ${clickable}`,
+    `page says pointer on island ${pageHover}`,
+    `pointer on island ${pointerOnIsland()}`,
+    `window visible ${win?.isVisible() ?? false}`,
+  ];
+  if (!health) {
+    parts.push("no report from the page yet");
+  } else {
+    const r = health.report;
+    parts.push(
+      `last report from the page ${ago(health.at)}`,
+      `page: ${r.mode}, visible ${r.visible}, pointer on island ${r.hovering}`,
+      `last mouse move ${ago(r.lastMove)}, press ${ago(r.lastDown)}, click ${ago(r.lastClick)}`,
+    );
+  }
+  return parts.join("; ");
+}
+
+function watchHealth(): void {
+  const now = Date.now();
+  if (lastHealthCheck !== 0 && now - lastHealthCheck > PAUSED_MS) {
+    log(`the app was stopped for ${Math.round((now - lastHealthCheck) / 1000)} s (standby?)`);
+    // The page was stopped too; give it time to report again before calling it quiet.
+    if (health) health.at = now;
+    freshMouseHook();
+  }
+  lastHealthCheck = now;
+  if (health && !pageQuiet && now - health.at > PAGE_QUIET_MS) {
+    pageQuiet = true;
+    log(`nothing from the page for ${Math.round((now - health.at) / 1000)} s; ${stateLine()}`);
+  }
 }
 
 /** Messages are only accepted from our own window. */
@@ -297,8 +388,15 @@ function fromIsland(event: IpcMainEvent): boolean {
   return win !== null && event.sender === win.webContents;
 }
 
+/** fromIsland for a click on the island, which is also noted for the log (see note). */
+function clicked(event: IpcMainEvent, what: string): boolean {
+  const ok = fromIsland(event);
+  note(`page: ${what}${ok ? "" : ", not from our window"}`);
+  return ok;
+}
+
 ipcMain.on("answer", (event, requestId: unknown, choice: unknown) => {
-  if (!fromIsland(event) || typeof requestId !== "string") return;
+  if (!clicked(event, `answer ${String(choice)}`) || typeof requestId !== "string") return;
   const end = open.get(requestId);
   const request = sessions.request(requestId);
   if (!end || !request) return;
@@ -314,13 +412,13 @@ ipcMain.on("answer", (event, requestId: unknown, choice: unknown) => {
 });
 
 ipcMain.on("focus-window", (event, sessionId: unknown) => {
-  if (!fromIsland(event) || typeof sessionId !== "string") return;
+  if (!clicked(event, "go to window") || typeof sessionId !== "string") return;
   const cwd = sessions.cwdOf(sessionId);
   if (cwd) void goToSession(cwd, sessionId);
 });
 
 ipcMain.on("go-to-question", (event, sessionId: unknown) => {
-  if (!fromIsland(event) || typeof sessionId !== "string") return;
+  if (!clicked(event, "go to question") || typeof sessionId !== "string") return;
   sessions.dismissQuestion(sessionId);
   push();
   const cwd = sessions.cwdOf(sessionId);
@@ -328,7 +426,7 @@ ipcMain.on("go-to-question", (event, sessionId: unknown) => {
 });
 
 ipcMain.on("forget-session", (event, sessionId: unknown) => {
-  if (!fromIsland(event) || typeof sessionId !== "string") return;
+  if (!clicked(event, "forget window") || typeof sessionId !== "string") return;
   for (const id of sessions.forget(sessionId)) open.get(id)?.(null);
   activity.forget(sessionId);
   push();
@@ -343,7 +441,7 @@ ipcMain.on("quit", (event) => {
 });
 
 ipcMain.on("dismiss-toast", (event) => {
-  if (!fromIsland(event)) return;
+  if (!clicked(event, "dismiss toast")) return;
   sessions.dismissToast();
   push();
 });
@@ -351,7 +449,21 @@ ipcMain.on("dismiss-toast", (event) => {
 ipcMain.on("interactive", (event, on: unknown) => {
   if (!fromIsland(event)) return;
   pageHover = on === true;
-  setClickable(pageHover);
+  note(`page: pointer ${pageHover ? "on" : "off"} the island`);
+  setClickable(pageHover, "page");
+});
+
+ipcMain.on("health", (event, report: unknown) => {
+  if (!fromIsland(event) || typeof report !== "object" || report === null) return;
+  const r = report as Record<string, unknown>;
+  const times = [r.lastMove, r.lastDown, r.lastClick].every((t) => typeof t === "number");
+  if (!times || typeof r.hovering !== "boolean" || typeof r.mode !== "string" || typeof r.visible !== "boolean") return;
+  if (pageQuiet) {
+    pageQuiet = false;
+    log(`the page is reporting again, after ${Math.round((Date.now() - (health?.at ?? 0)) / 1000)} s`);
+  }
+  if (health && health.report.visible !== r.visible) log(`the page is ${r.visible ? "visible" : "hidden"} now (Chromium's view)`);
+  health = { at: Date.now(), report: r as unknown as PageHealth };
 });
 
 ipcMain.on("island-box", (event, box: unknown) => {
@@ -526,6 +638,11 @@ app.on("second-instance", () => {
 // Closing Mochi must never leave Claude Code waiting: every open request goes back to VS Code.
 app.on("before-quit", () => {
   log("quitting");
+  // Quitting is what you do when Mochi is stuck, so this is the moment worth a picture.
+  if (win) {
+    log(`at quit: ${stateLine()}`);
+    for (const event of recent) log(`  recent: ${event}`);
+  }
   for (const end of [...open.values()]) end(null);
   stopHelper();
 });
@@ -574,6 +691,7 @@ app.whenReady().then(async () => {
   }, 60 * 1000);
   setInterval(followActivity, ACTIVITY_POLL_MS);
   setInterval(watchPointer, POINTER_POLL_MS);
+  setInterval(watchHealth, HEALTH_CHECK_MS);
 
   if (!connected) void connect();
 });

@@ -238,6 +238,32 @@ new ResizeObserver(() => {
   bridge.setIslandBox({ x: r.x, y: r.y, width: r.width, height: r.height });
 }).observe(root);
 
+// ── Health report ─────────────────────────────────────────────────────────────
+// For mochi.log only. Every few seconds the page tells the app it is alive, what it thinks
+// the pointer is doing, and when it last got the mouse. When the island stops answering
+// clicks, the log can then say whether the mouse stopped reaching this page, or this page
+// stopped reaching the app.
+
+/** How often the page reports; main.ts (PAGE_QUIET_MS) expects about this. */
+const HEALTH_MS = 5000;
+const lastMouse = { move: 0, down: 0, click: 0 };
+window.addEventListener("mousemove", () => (lastMouse.move = Date.now()), true);
+window.addEventListener("mousedown", () => (lastMouse.down = Date.now()), true);
+window.addEventListener("click", () => (lastMouse.click = Date.now()), true);
+
+function reportHealth(): void {
+  bridge.reportHealth({
+    lastMove: lastMouse.move,
+    lastDown: lastMouse.down,
+    lastClick: lastMouse.click,
+    hovering,
+    mode: shownMode ?? "",
+    visible: document.visibilityState === "visible",
+  });
+}
+setInterval(reportHealth, HEALTH_MS);
+document.addEventListener("visibilitychange", reportHealth);
+
 // Mochi's eyes follow the pointer while it is near the island.
 window.addEventListener("mousemove", (e) => {
   lastPointerMove = performance.now();

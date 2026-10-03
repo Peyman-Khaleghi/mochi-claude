@@ -52,7 +52,9 @@ The first time, Mochi asks to connect to Claude Code (see below).
 - **If it misbehaves:** `%APPDATA%\mochi-claude\mochi.log` lists each step of every start
   (pipe, window, page loaded, shown, where) and what Windows did to the window after
   (sleep, lock, screen changes, and each time the island had to be made clickable because
-  Windows stopped passing it the pointer). Nothing from Claude Code is written there.
+  Windows stopped passing it the pointer). When Mochi quits it also writes how the island
+  looked at that moment and its last few clicks, since quitting is what you do when it
+  is stuck. Nothing from Claude Code is written there.
 - **Starting with Windows:** the switch **با ویندوز باز بشه** under the count, or the
   same item in the tray menu. It adds Mochi to your user's "Run" list
   (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), which Windows reads when
@@ -153,6 +155,10 @@ These were made on purpose; change them knowingly.
   Windows passes it the pointer's moves, through a mouse hook. Windows can drop that hook
   without a word, and then every click would fall through the island to VS Code. The
   app's own check (`watchPointer` in `main.ts`) makes the island clickable anyway.
+- **Chromium's "can this window be seen?" saving is off** (`CalculateNativeWinOcclusion`).
+  When the laptop locks or sleeps, Chromium marks windows as unseen and switches off their
+  input; for Mochi's see-through window it didn't switch it back on, so after standby the
+  island drew new cards but took no clicks. Mochi is always on top and never needed it.
 
 ## Not yet checked in real use
 

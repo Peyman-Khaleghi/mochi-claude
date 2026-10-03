@@ -97,6 +97,24 @@ export interface IslandBox {
   height: number;
 }
 
+/**
+ * The page's report on itself, every few seconds (island.ts). It only goes to mochi.log:
+ * when the island stops answering clicks, it tells whether the mouse stopped reaching the
+ * page, or the page stopped reaching the app.
+ */
+export interface PageHealth {
+  /** When the page last got a mouse move, a button press and a click, in ms since 1970; 0 if never. */
+  lastMove: number;
+  lastDown: number;
+  lastClick: number;
+  /** Whether the page thinks the pointer is on the island. */
+  hovering: boolean;
+  /** Which look the island has now: request, toast, overview, pill or lip. */
+  mode: string;
+  /** Whether Chromium thinks the page can be seen (document.visibilityState). */
+  visible: boolean;
+}
+
 /** What the window may ask of the app. Defined once so both sides agree. */
 export interface Bridge {
   onState(listener: (state: IslandState) => void): void;
@@ -120,6 +138,8 @@ export interface Bridge {
   setInteractive(on: boolean): void;
   /** Where the island is, each time its size changes; the app checks the pointer against it too (main.ts, watchPointer). */
   setIslandBox(box: IslandBox): void;
+  /** The page is alive, and this is how it sees things; for mochi.log (main.ts, watchHealth). */
+  reportHealth(health: PageHealth): void;
   connect(): void;
   setStartWithWindows(on: boolean): void;
   /** Closes Mochi. Any open card goes back to VS Code first (main.ts → before-quit). */

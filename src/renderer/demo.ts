@@ -106,6 +106,7 @@ export function demoBridge(): Bridge {
     dismissToast: () => log("dismiss toast"),
     setInteractive: () => {},
     setIslandBox: () => {},
+    reportHealth: () => {},
     connect: () => log("connect"),
     setStartWithWindows: (on) => log("start with windows", on),
     quit: () => log("quit"),

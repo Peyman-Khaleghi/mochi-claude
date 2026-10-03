@@ -17,6 +17,7 @@ const bridge: Bridge = {
   dismissToast: () => ipcRenderer.send("dismiss-toast"),
   setInteractive: (on) => ipcRenderer.send("interactive", on),
   setIslandBox: (box) => ipcRenderer.send("island-box", box),
+  reportHealth: (health) => ipcRenderer.send("health", health),
   connect: () => ipcRenderer.send("connect"),
   setStartWithWindows: (on) => ipcRenderer.send("start-with-windows", on),
   quit: () => ipcRenderer.send("quit"),
