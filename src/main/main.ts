@@ -51,6 +51,9 @@ const ACTIVITY_POLL_MS = 1000;
 /** How often the app checks the pointer itself, so the island can always be clicked (watchPointer). */
 const POINTER_POLL_MS = 100;
 
+/** How often the app checks that its window is still above every other window (keepOnTop). */
+const ON_TOP_CHECK_MS = 1000;
+
 /** How often the app looks at its own health and the page's (watchHealth). */
 const HEALTH_CHECK_MS = 1000;
 /** The page reports every 5 s (island.ts); nothing from it for this long goes to the log. */
@@ -125,6 +128,8 @@ let health: { at: number; report: PageHealth } | null = null;
 let lastHealthCheck = 0;
 /** The page has been quiet for PAGE_QUIET_MS and that is already in the log. */
 let pageQuiet = false;
+/** When keepOnTop last had to put the window back on top. */
+let lastPutBack = 0;
 /** The latest pointer and click events, "12:58:30.120 clickable (page)", oldest first. */
 const recent: string[] = [];
 
@@ -256,6 +261,12 @@ function createWindow(): void {
       logWindow("no ready-to-show after the page loaded, shown anyway");
     }, SHOW_ANYWAY_AFTER_MS);
   });
+  // A closed window throws "Object has been destroyed" on every use, and while Mochi quits
+  // its timers (watchPointer and the rest) still run for a moment. Each of them checks
+  // `win` first, so from here on they leave the window alone.
+  win.on("closed", () => {
+    win = null;
+  });
   win.webContents.on("did-fail-load", (_event, code, description) => log(`page failed to load: ${code} ${description}`));
   win.webContents.on("render-process-gone", (_event, details) => log(`page process gone: ${details.reason}`));
   win.on("unresponsive", () => log("page not responding"));
@@ -266,6 +277,19 @@ function createWindow(): void {
   screen.on("display-metrics-changed", placeWindow);
   screen.on("display-added", placeWindow);
   screen.on("display-removed", placeWindow);
+}
+
+/**
+ * Something on Windows now and then takes the window's always-on-top away, and the island
+ * then sits under VS Code until every window is minimised. Electron reads the real state
+ * (isAlwaysOnTop), and setAlwaysOnTop puts it back. If something keeps taking it away,
+ * only the first time goes to the log, not a line every second.
+ */
+function keepOnTop(): void {
+  if (!win || win.isAlwaysOnTop()) return;
+  win.setAlwaysOnTop(true, "screen-saver");
+  if (Date.now() - lastPutBack > 60 * 1000) log("the window was no longer on top of the others; put it back");
+  lastPutBack = Date.now();
 }
 
 /**
@@ -691,6 +715,7 @@ app.whenReady().then(async () => {
   }, 60 * 1000);
   setInterval(followActivity, ACTIVITY_POLL_MS);
   setInterval(watchPointer, POINTER_POLL_MS);
+  setInterval(keepOnTop, ON_TOP_CHECK_MS);
   setInterval(watchHealth, HEALTH_CHECK_MS);
 
   if (!connected) void connect();
